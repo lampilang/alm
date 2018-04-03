@@ -1,14 +1,17 @@
 #[cfg(unix)]
-mod unix;
+#[path="unix.rs"]
+mod os;
 
 #[cfg(target_os = "windows")]
-mod windows;
+#[path="windows.rs"]
+mod os;
 
 pub use std::io::Error;
 
-#[cfg(unix)]
-pub use self::unix::{
+pub use self::os::{
     OsFd,
+    RawInput,
+    RawOutput,
     read,
     write,
     open,
@@ -31,17 +34,4 @@ pub enum CreateOpts {
     CreateNew(),
     Create(bool),
     DoNotCreate(bool),
-}
-
-
-pub trait RawEvent {
-
-    type Result;
-
-    fn is_done(&self) -> bool;
-
-    fn try_fetch(&mut self) -> Result<(), Error>;
-
-    fn take(self) -> Self::Result;
-
 }

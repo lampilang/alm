@@ -1,7 +1,9 @@
 mod raw;
 mod inner;
+mod evt;
 
 pub use self::raw::OsFd;
+pub use self::evt::{Output, Input};
 pub use std::io::Error;
 
 use std::sync::{Arc, Mutex, Once, ONCE_INIT};

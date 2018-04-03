@@ -3,8 +3,8 @@ use libc::{
     c_int,
     mode_t,
     fcntl,
-    open as fd_open,
-    close as fd_close,
+    open as c_open,
+    close as c_close,
     mknod,
     read as c_read,
     write as c_write,
@@ -28,7 +28,7 @@ use libc::{
 };
 use std::io::ErrorKind;
 use io::Error;
-use io::raw::{EndOpts, CreateOpts, RawEvent};
+use io::raw::{EndOpts, CreateOpts};
 use io::raw::CreateOpts::*;
 use io::raw::EndOpts::*;
 
@@ -36,28 +36,26 @@ pub const DFL_PERM: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
 
 pub type OsFd = c_int;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RawInput {
+#[derive(Debug)]
+pub struct RawInput<'a> {
     fd: OsFd,
     count: usize,
-    read: Vec<u8>,
+    buf: &'a mut [u8],
 }
 
-impl RawEvent for RawInput {
-
-    type Result = Vec<u8>;
+impl<'a> RawInput<'a> {
 
     fn is_done(&self) -> bool {
-        self.count == 0
+        self.count >= self.buf.len()
     }
 
-    fn try_fetch(&mut self) -> Result<(), Error> {
+    fn try_fetch(&mut self) -> Result<bool, Error> {
         if self.is_done() {
-            return Ok(());
+            return Ok(true);
         }
         let res = unsafe {
-            let offset = (self.read.len() - self.count) as isize;
-            let ptr = self.read.as_mut_ptr().offset(offset) as *mut c_void;
+            let offset = (self.buf.len() - self.count) as isize;
+            let ptr = self.buf.as_mut_ptr().offset(offset) as *mut c_void;
             c_read(self.fd, ptr, self.count)
         };
         if res < 0 {
@@ -66,34 +64,34 @@ impl RawEvent for RawInput {
                 return Err(err);
             }
         } else {
-            self.count -= res as usize;
+            self.count += res as usize;
         }
-        Ok(())
-    }
-
-    fn take(mut self) ->  Self::Result {
-        self.read.truncate(self.count);
-        self.read
+        Ok(self.is_done())
     }
 
 }
 
-impl RawEvent for RawOutput {
+#[derive(Debug)]
+pub struct RawOutput<'a> {
+    fd: OsFd,
+    count: usize,
+    buf: &'a [u8],
+}
 
-    type Result = usize;
+impl<'a> RawOutput<'a> {
 
     fn is_done(&self) -> bool {
-        self.written >= self.data.len()
+        self.count >= self.buf.len()
     }
 
-    fn try_fetch(&mut self) -> Result<(), Error> {
+    fn try_fetch(&mut self) -> Result<bool, Error> {
         if self.is_done() {
-            return Ok(());
+            return Ok(true);
         }
         let res = unsafe {
-            let offset = self.written as isize;
-            let ptr = self.data.as_ptr().offset(offset) as *const c_void;
-            c_write(self.fd, ptr, self.data.len() - self.written)
+            let offset = self.count as isize;
+            let ptr = self.buf.as_ptr().offset(offset) as *const c_void;
+            c_write(self.fd, ptr, self.buf.len() - self.count)
         };
         if res < 0 {
             let err = Error::last_os_error();
@@ -101,22 +99,11 @@ impl RawEvent for RawOutput {
                 return Err(err);
             }
         } else {
-            self.written += res as usize;
+            self.count += res as usize;
         }
-        Ok(())
+        Ok(self.is_done())
     }
 
-    fn take(self) ->  Self::Result {
-        self.written
-    }
-
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RawOutput {
-    fd: OsFd,
-    data: Vec<u8>,
-    written: usize,
 }
 
 pub fn open(
@@ -150,19 +137,19 @@ pub fn open(
             if unsafe { mknod(path_ptr, mode, 0) } < 0 {
                 return Err(Error::last_os_error());
             }
-            unsafe { fd_open(path_ptr, int_flags) }
+            unsafe { c_open(path_ptr, int_flags) }
         },
         Create(trunc) => {
             if trunc {
                 int_flags |= O_TRUNC;
             }
-            unsafe { fd_open(path_ptr, int_flags | O_CREAT, DFL_PERM) }
+            unsafe { c_open(path_ptr, int_flags | O_CREAT, DFL_PERM) }
         },
         DoNotCreate(trunc) => {
             if trunc {
                 int_flags |= O_TRUNC;
             }
-            unsafe { fd_open(path_ptr, int_flags) }
+            unsafe { c_open(path_ptr, int_flags) }
         },
     };
     if fd < 0 {
@@ -172,24 +159,24 @@ pub fn open(
     }
 }
 
-pub fn read(fd: OsFd, count: usize) -> RawInput {
+pub fn read<'a>(fd: OsFd, buf: &'a mut [u8]) -> RawInput<'a> {
     RawInput {
         fd,
-        count,
-        read: vec![0; count],
+        buf,
+        count: 0,
     }
 }
 
-pub fn write(fd: OsFd, data: Vec<u8>) -> RawOutput {
+pub fn write<'a>(fd: OsFd, buf: &'a [u8]) -> RawOutput<'a> {
     RawOutput {
         fd,
-        data,
-        written: 0,
+        buf,
+        count: 0,
     }
 }
 
 pub fn close(fd: OsFd) {
-    unsafe { fd_close(fd); }
+    unsafe { c_close(fd); }
 }
 
 pub fn stdin() -> Result<OsFd, Error> {
