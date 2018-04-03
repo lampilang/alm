@@ -3,4 +3,10 @@ name = "alm"
 version = "0.1.0"
 authors = ["Bruno Corrêa Zimmermann <brunoczim@gmail.com>"]
 
-[dependencies]
+[target.'cfg(target_os = "windows")'.dependencies.winapi]
+version = "0.3"
+git = "https://github.com/retep998/winapi-rs"
+features = ["winuser", "sysinfoapi", "processenv", "handleapi", "synchapi", "winbase"]
+
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+libc = "0.2"

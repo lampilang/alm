@@ -57,16 +57,16 @@ impl MultiTyped for Value {
 #[derive(Clone, Debug)]
 pub enum ArrayType {
     Nil(usize),
-    Byte(Arc<Vec<u8>>),
-    IWord(Arc<Vec<isize>>),
-    UWord(Arc<Vec<usize>>),
-    I64(Arc<Vec<i64>>),
-    U64(Arc<Vec<u64>>),
-    F64(Arc<Vec<f64>>),
-    Array(Arc<Vec<Array>>),
-    Tuple(Arc<Vec<Tuple>>),
-    Function(Arc<Vec<Function>>),
-    Extension(Arc<Vec<*mut ()>>),
+    Byte(Arc<[u8]>),
+    IWord(Arc<[isize]>),
+    UWord(Arc<[usize]>),
+    I64(Arc<[i64]>),
+    U64(Arc<[u64]>),
+    F64(Arc<[f64]>),
+    Array(Arc<[Array]>),
+    Tuple(Arc<[Tuple]>),
+    Function(Arc<[Function]>),
+    Extension(Arc<[*mut ()]>),
 }
 
 impl MultiTyped for ArrayType {
@@ -91,32 +91,71 @@ impl MultiTyped for ArrayType {
 
 #[derive(Clone, Debug)]
 pub struct Array {
-    memory: Arc<ArrayInner>
+    inner: Arc<ArrayType>
+}
+
+impl Array {
+
+    pub fn new(typ: Arc<ArrayType>) -> Self {
+        Self {inner: typ}
+    }
+
+    pub fn type_enum(&self) -> &Arc<ArrayType> {
+        &self.inner
+    }
+
 }
 
 #[derive(Clone, Debug)]
 pub struct Tuple {
-    memory: Arc<TupleInner>
+    inner: Arc<[Value]>
+}
+
+impl Tuple {
+
+    pub fn new(elems: Arc<[Value]>) -> Self {
+        Self {inner: elems}
+    }
+
+    pub fn elements(&self) -> &Arc<[Value]> {
+        &self.inner
+    }
+
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    memory: Arc<FunctionInner>
+    inner: Arc<FunctionInner>
 }
 
 #[derive(Clone, Debug)]
 struct FunctionInner {
     env: Value,
-    bc: Arc<Vec<u8>>,
-    name: Arc<Vec<u8>>,
+    bc: Arc<[u8]>,
+    name: Arc<[u8]>,
 }
 
-#[derive(Clone, Debug)]
-struct ArrayInner {
-    typ: ArrayType,
-}
 
-#[derive(Clone, Debug)]
-struct TupleInner {
-    elems: Vec<Value>,
+impl Function {
+
+    pub fn new(env: Value, bc: Arc<[u8]>, name: Arc<[u8]>) -> Self {
+        Self {inner: Arc::new(FunctionInner {
+            env,
+            bc,
+            name
+        })}
+    }
+
+    pub fn env(&self) -> &Value {
+        &self.inner.env
+    }
+
+    pub fn bc(&self) -> &Arc<[u8]> {
+        &self.inner.bc
+    }
+
+    pub fn name(&self) -> &Arc<[u8]> {
+        &self.inner.name
+    }
+
 }
