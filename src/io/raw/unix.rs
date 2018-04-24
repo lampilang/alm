@@ -1,6 +1,7 @@
 use libc::{
     c_void,
     c_int,
+    off_t,
     mode_t,
     fcntl,
     open as c_open,
@@ -8,7 +9,12 @@ use libc::{
     mknod,
     read as c_read,
     write as c_write,
-    S_IFREG,
+    lseek,
+    __errno_location,
+    EOVERFLOW,
+    SEEK_SET,
+    SEEK_CUR,
+    SEEK_END,
     F_GETFL,
     F_SETFL,
     O_NONBLOCK,
@@ -21,13 +27,14 @@ use libc::{
     STDIN_FILENO,
     STDOUT_FILENO,
     STDERR_FILENO,
+    S_IFREG,
     S_IRUSR,
     S_IWUSR,
     S_IRGRP,
     S_IROTH,
 };
 use std::io::ErrorKind;
-use io::Error;
+use io::{Error, SeekFrom};
 use io::raw::{EndOpts, CreateOpts};
 use io::raw::CreateOpts::*;
 use io::raw::EndOpts::*;
@@ -189,6 +196,67 @@ pub fn write<'a>(fd: OsFd, buf: Vec<u8>) -> RawOutput {
         fd,
         buf,
         count: 0,
+    }
+}
+
+pub fn seek(fd: OsFd, from: SeekFrom) -> Result<u64, Error> {
+    match from {
+        SeekFrom::Start(offset) => seek_uint(fd, offset, SEEK_SET),
+        SeekFrom::Current(offset) => seek_int(fd, offset, SEEK_CUR),
+        SeekFrom::End(offset) => seek_int(fd, offset, SEEK_END),
+    }
+}
+
+
+fn seek_uint(fd: OsFd, mut offset: u64, from: c_int) -> Result<u64, Error> {
+    while offset > off_t::max_value() as u64 {
+        offset -= off_t::max_value() as u64;
+        let res = unsafe {
+            lseek(fd, off_t::max_value(), from)
+        };
+        if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
+            return Err(Error::last_os_error())
+        }
+    }
+
+    let res = unsafe { lseek(fd, offset as off_t, from) };
+    if res >= 0 {
+        Ok(res as u64)
+    } else if unsafe { *__errno_location() } == EOVERFLOW {
+        Ok(u64::max_value())
+    } else {
+        Err(Error::last_os_error())
+    }
+}
+
+fn seek_int(fd: OsFd, mut offset: i64, from: c_int) -> Result<u64, Error> {
+    while offset > off_t::max_value() as i64 {
+        offset -= off_t::max_value() as i64;
+        let res = unsafe {
+            lseek(fd, off_t::max_value(), from)
+        };
+        if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
+            return Err(Error::last_os_error())
+        }
+    }
+
+    while offset < off_t::min_value() as i64 {
+        offset -= off_t::min_value() as i64;
+        let res = unsafe {
+            lseek(fd, off_t::min_value(), from)
+        };
+        if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
+            return Err(Error::last_os_error())
+        }
+    }
+
+    let res = unsafe { lseek(fd, offset as off_t, from) };
+    if res >= 0 {
+        Ok(res as u64)
+    } else if unsafe {*__errno_location()} == EOVERFLOW {
+        Ok(u64::max_value())
+    } else {
+        Err(Error::last_os_error())
     }
 }
 

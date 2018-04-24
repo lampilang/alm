@@ -6,7 +6,7 @@ mod os;
 #[path="windows.rs"]
 mod os;
 
-pub use std::io::Error;
+use super::{Error, SeekFrom};
 
 pub use self::os::{
     OsFd,
@@ -14,6 +14,7 @@ pub use self::os::{
     RawOutput,
     read,
     write,
+    seek,
     open,
     close,
     stdin,

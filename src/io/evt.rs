@@ -3,10 +3,12 @@ use super::{
         RawInput,
         RawOutput,
         read as raw_read,
-        write as raw_write
+        write as raw_write,
+        seek as raw_seek,
     },
     Fd,
     Error,
+    SeekFrom,
 };
 use std::sync::{MutexGuard};
 use std::ops::{DerefMut};
@@ -36,6 +38,13 @@ pub fn flush(fd: Fd) -> Flush {
     }
 }
 
+pub fn seek(fd: Fd, from: SeekFrom) -> Seek {
+    Seek {
+        fd,
+        status: SeekStatus::Pending(from),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputStatus {
     Pending(usize),
@@ -53,6 +62,12 @@ pub enum FlushStatus {
     Pending(),
     DoneRead(Vec<u8>),
     DoneAll(Vec<u8>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SeekStatus {
+    Pending(SeekFrom),
+    Done(u64),
 }
 
 #[derive(Debug)]
@@ -287,6 +302,40 @@ impl Flush {
         } else {
             self.raw = Some(raw);
         }
+
+        Ok(&self.status)
+    }
+
+}
+
+#[derive(Debug)]
+pub struct Seek {
+    fd: Fd,
+    status: SeekStatus,
+}
+
+impl Seek {
+
+    pub fn is_done(&self) -> bool {
+        match self.status {
+            SeekStatus::Pending(_) => false,
+            _ => true,
+        }
+    }
+
+    pub fn try_seek(&mut self) -> Result<&SeekStatus, Error> {
+        let mode = match self.status {
+            SeekStatus::Pending(mode) => mode,
+            ref x => return Ok(x),
+        };
+
+        if self.fd.inner.swap_use_lock(true) {
+            return Ok(&self.status)
+        }
+
+        let fd = self.fd.inner.os_fd.unwrap();
+
+        self.status = SeekStatus::Done(raw_seek(fd, mode)?);
 
         Ok(&self.status)
     }

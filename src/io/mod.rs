@@ -2,22 +2,41 @@ mod raw;
 mod inner;
 mod evt;
 
-pub use self::raw::OsFd;
-pub use self::evt::{Output, Input};
-pub use std::io::Error;
-
-use std::sync::{Arc, Mutex, Once, ONCE_INIT};
-use self::inner::FdInner;
-use self::raw::{EndOpts, CreateOpts};
-use self::raw::{
-    EndOpts::*,
-    CreateOpts::*,
-    open,
-    write,
-    stdin,
-    stdout,
-    stderr,
+pub use self:: {
+    evt::{
+        Input,
+        Output,
+        Flush,
+        Seek,
+        InputStatus,
+        OutputStatus,
+        FlushStatus,
+        SeekStatus,
+    },
+    raw::OsFd,
 };
+pub use std::io::{Error, SeekFrom};
+
+use self::{
+    raw::{
+        EndOpts,
+        CreateOpts,
+        EndOpts::*,
+        CreateOpts::*,
+        open,
+        stdin,
+        stdout,
+        stderr,
+    },
+    evt::{
+        read,
+        write,
+        flush,
+        seek,
+    },
+    inner::FdInner,
+};
+use std::sync::{Arc, Mutex, Once, ONCE_INIT};
 
 #[derive(Clone, Debug)]
 pub struct FdOpener<'a> {
@@ -137,6 +156,22 @@ impl Fd {
 
     pub fn open<'a>(path: &'a str) -> FdOpener<'a> {
         FdOpener::new(path)
+    }
+
+    pub fn read(&self, count: usize) -> Input {
+        read(self.clone(), count)
+    }
+
+    pub fn write(&self, data: Vec<u8>) -> Output {
+        write(self.clone(), data)
+    }
+
+    pub fn flush(&self) -> Flush {
+        flush(self.clone())
+    }
+
+    pub fn seek(&self, mode: SeekFrom) -> Seek {
+        seek(self.clone(), mode)
     }
 
     pub fn stdin() -> Self {
