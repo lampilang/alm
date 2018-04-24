@@ -1,6 +1,5 @@
 use val::*;
 use std::sync::{Arc, Mutex};
-use std::collections::HashSet;
 use vm::{VmAlloc, WeakVm};
 
 #[derive(Clone, Debug)]
@@ -54,88 +53,94 @@ pub struct RegSet {
 }
 
 #[derive(Debug)]
-pub struct Process {
-    regs: Mutex<RegSet>,
-    fd_wl: Mutex<HashSet<u64>>,
+struct ProcessInner {
+    regs: RegSet,
     pid: u64,
     vm: WeakVm,
+    done: Mutex<bool>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Process {
+    inner: Arc<ProcessInner>,
 }
 
 impl Process {
 
     pub fn new(
         start: Function,
-        fds: HashSet<u64>,
         pid: u64,
         vm: &VmAlloc
     ) -> Self {
         Self {
-            fd_wl: Mutex::new(fds),
-            pid,
-            vm: vm.as_weak(),
-            regs: Mutex::new(RegSet {
-                va: Value::Nil(),
-                vb: Value::Nil(),
-                vc: Value::Nil(),
-                vd: Value::Nil(),
-                ba: 0,
-                bb: 0,
-                bc: 0,
-                bd: 0,
-                iwa: 0,
-                iwb: 0,
-                iwc: 0,
-                iwd: 0,
-                uwa: 0,
-                uwb: 0,
-                uwc: 0,
-                uwd: 0,
-                ia: 0,
-                ib: 0,
-                ic: 0,
-                id: 0,
-                ua: 0,
-                ub: 0,
-                uc: 0,
-                ud: 0,
-                fa: 0.0,
-                fb: 0.0,
-                fc: 0.0,
-                fd: 0.0,
-                aa: Array::new(Arc::new(ArrayType::Nil(0))),
-                ab: Array::new(Arc::new(ArrayType::Nil(0))),
-                ac: Array::new(Arc::new(ArrayType::Nil(0))),
-                ad: Array::new(Arc::new(ArrayType::Nil(0))),
-                ta: Tuple::new(Arc::new([])),
-                tb: Tuple::new(Arc::new([])),
-                tc: Tuple::new(Arc::new([])),
-                td: Tuple::new(Arc::new([])),
-                fna: Function::new(
-                    Value::Nil(),
-                    Arc::new([]),
-                    Arc::from(b"@<no op>".to_vec())
-                ),
-                fnb: Function::new(
-                    Value::Nil(),
-                    Arc::new([]),
-                    Arc::from(b"@<no op>".to_vec())
-                ),
-                fnc: Function::new(
-                    Value::Nil(),
-                    Arc::new([]),
-                    Arc::from(b"@<no op>".to_vec())
-                ),
-                fnd: Function::new(
-                    Value::Nil(),
-                    Arc::new([]),
-                    Arc::from(b"@<no op>".to_vec())
-                ),
-                sa: Arc::new([]),
-                sb: Arc::new([]),
-                sc: Arc::new([]),
-                sd: Arc::new([]),
-                rfn: start,
-                ip: 0,
+            inner: Arc::new(ProcessInner {
+                pid,
+                vm: vm.as_weak(),
+                regs: RegSet {
+                    va: Value::Nil(),
+                    vb: Value::Nil(),
+                    vc: Value::Nil(),
+                    vd: Value::Nil(),
+                    ba: 0,
+                    bb: 0,
+                    bc: 0,
+                    bd: 0,
+                    iwa: 0,
+                    iwb: 0,
+                    iwc: 0,
+                    iwd: 0,
+                    uwa: 0,
+                    uwb: 0,
+                    uwc: 0,
+                    uwd: 0,
+                    ia: 0,
+                    ib: 0,
+                    ic: 0,
+                    id: 0,
+                    ua: 0,
+                    ub: 0,
+                    uc: 0,
+                    ud: 0,
+                    fa: 0.0,
+                    fb: 0.0,
+                    fc: 0.0,
+                    fd: 0.0,
+                    aa: Array::new(Arc::new(ArrayType::Nil(0))),
+                    ab: Array::new(Arc::new(ArrayType::Nil(0))),
+                    ac: Array::new(Arc::new(ArrayType::Nil(0))),
+                    ad: Array::new(Arc::new(ArrayType::Nil(0))),
+                    ta: Tuple::new(Arc::new([])),
+                    tb: Tuple::new(Arc::new([])),
+                    tc: Tuple::new(Arc::new([])),
+                    td: Tuple::new(Arc::new([])),
+                    fna: Function::new(
+                        Value::Nil(),
+                        Arc::new([]),
+                        Arc::from(b"__vm_builtin@<no op>".to_vec())
+                    ),
+                    fnb: Function::new(
+                        Value::Nil(),
+                        Arc::new([]),
+                        Arc::from(b"__vm_builtin@<no op>".to_vec())
+                    ),
+                    fnc: Function::new(
+                        Value::Nil(),
+                        Arc::new([]),
+                        Arc::from(b"__vm_builtin@<no op>".to_vec())
+                    ),
+                    fnd: Function::new(
+                        Value::Nil(),
+                        Arc::new([]),
+                        Arc::from(b"__vm_builtin@<no op>".to_vec())
+                    ),
+                    sa: Arc::new([]),
+                    sb: Arc::new([]),
+                    sc: Arc::new([]),
+                    sd: Arc::new([]),
+                    rfn: start,
+                    ip: 0,
+                },
+                done: Mutex::new(false),
             })
         }
     }

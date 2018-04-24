@@ -1,35 +1,38 @@
 use process::Process;
 use val::Value;
 use std::thread::{ThreadId, JoinHandle};
-use std::collections::{HashMap, VecDeque};
-use std::sync::{Mutex, Arc, Weak};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Mutex, Arc, Weak, RwLock};
 use io::Fd;
 use host_info::cpu_count;
 
 
 #[derive(Debug)]
 struct ProcPool {
-    procs: Mutex<HashMap<u64, Arc<Process>>>,
+    procs: Mutex<HashMap<u64, Ed<Process>>>,
     join: Mutex<Option<JoinHandle<()>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct Channel {
-    messages: VecDeque<Value>,
+    messages: Arc<Mutex<VecDeque<Value>>>,
 }
 
-#[derive(Debug)]
-enum Ed {
-    Pid(u64),
-    Ipc(Channel),
-    Fd(Fd),
+#[derive(Debug, Clone)]
+struct Ed<T> {
+    dev: T,
+    allowed: HashSet<u64>,
 }
 
 #[derive(Debug)]
 struct VmInner {
-    eds: Mutex<HashMap<u64, Ed>>,
-    ed_inc: Mutex<u64>,
+    fds: Mutex<HashMap<u64, Ed<Fd>>>,
+    ipcs: Mutex<HashMap<u64, Ed<Channel>>>,
     pool: Box<[ProcPool]>,
+    fd_inc: Mutex<u64>,
+    ipc_inc: Mutex<u64>,
+    proc_inc: Mutex<u64>,
+    bytecode: RwLock<HashMap<String, Arc<[u8]>>>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,15 +73,19 @@ impl VmAlloc {
                 join: Mutex::new(None),
             });
         }
-        let mut eds = HashMap::with_capacity(64);
-        eds.insert(0, Ed::Fd(stdin));
-        eds.insert(1, Ed::Fd(stdout));
-        eds.insert(2, Ed::Fd(stderr));
+        let mut fds = HashMap::with_capacity(64);
+        fds.insert(0, Ed { dev: stdin, allowed: HashSet::new() });
+        fds.insert(1, Ed { dev: stdout, allowed: HashSet::new() });
+        fds.insert(2, Ed { dev: stderr, allowed: HashSet::new() });
         Self {
             inner: Arc::new(VmInner {
-                eds: Mutex::new(eds),
-                ed_inc: Mutex::new(3),
-                pool: pool.into_boxed_slice()
+                fds: Mutex::new(fds),
+                ipcs: Mutex::new(HashMap::new()),
+                pool: pool.into_boxed_slice(),
+                fd_inc: Mutex::new(3),
+                ipc_inc: Mutex::new(0),
+                proc_inc: Mutex::new(1),
+                bytecode: RwLock::new(HashMap::new()),
             })
         }
     }
