@@ -37,27 +37,29 @@ pub const DFL_PERM: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
 pub type OsFd = c_int;
 
 #[derive(Debug)]
-pub struct RawInput<'a> {
+pub struct RawInput {
     fd: OsFd,
     count: usize,
-    buf: &'a mut [u8],
+    buf: Vec<u8>,
 }
 
-impl<'a> RawInput<'a> {
+impl RawInput {
 
-    fn is_done(&self) -> bool {
+    pub fn is_done(&self) -> bool {
         self.count >= self.buf.len()
     }
 
-    fn try_fetch(&mut self) -> Result<bool, Error> {
+    pub fn try_read(&mut self) -> Result<bool, Error> {
         if self.is_done() {
             return Ok(true);
         }
+
         let res = unsafe {
             let offset = (self.buf.len() - self.count) as isize;
             let ptr = self.buf.as_mut_ptr().offset(offset) as *mut c_void;
             c_read(self.fd, ptr, self.count)
         };
+
         if res < 0 {
             let err = Error::last_os_error();
             if err.kind() != ErrorKind::WouldBlock {
@@ -66,33 +68,42 @@ impl<'a> RawInput<'a> {
         } else {
             self.count += res as usize;
         }
+
         Ok(self.is_done())
     }
+
+    pub fn buf(&self) -> &[u8] {
+        &self.buf[..]
+    }
+
+    pub fn take(self) -> Vec<u8> {self.buf}
 
 }
 
 #[derive(Debug)]
-pub struct RawOutput<'a> {
+pub struct RawOutput {
     fd: OsFd,
     count: usize,
-    buf: &'a [u8],
+    buf: Vec<u8>,
 }
 
-impl<'a> RawOutput<'a> {
+impl RawOutput {
 
-    fn is_done(&self) -> bool {
+    pub fn is_done(&self) -> bool {
         self.count >= self.buf.len()
     }
 
-    fn try_fetch(&mut self) -> Result<bool, Error> {
+    pub fn try_write(&mut self) -> Result<bool, Error> {
         if self.is_done() {
             return Ok(true);
         }
+
         let res = unsafe {
             let offset = self.count as isize;
             let ptr = self.buf.as_ptr().offset(offset) as *const c_void;
             c_write(self.fd, ptr, self.buf.len() - self.count)
         };
+
         if res < 0 {
             let err = Error::last_os_error();
             if err.kind() != ErrorKind::WouldBlock {
@@ -101,6 +112,7 @@ impl<'a> RawOutput<'a> {
         } else {
             self.count += res as usize;
         }
+
         Ok(self.is_done())
     }
 
@@ -118,6 +130,7 @@ pub fn open(
     path_alloc.extend_from_slice(path.as_bytes());
     path_alloc.push(0);
     let path_ptr = path_alloc.as_ptr() as *const i8;
+
     let mut int_flags = O_NONBLOCK | match end {
         I() => O_RDONLY,
         O(append) => if append {
@@ -131,6 +144,7 @@ pub fn open(
             O_RDWR
         },
     };
+
     let fd = match create {
         CreateNew() => {
             let mode = S_IFREG | DFL_PERM;
@@ -139,12 +153,14 @@ pub fn open(
             }
             unsafe { c_open(path_ptr, int_flags) }
         },
+
         Create(trunc) => {
             if trunc {
                 int_flags |= O_TRUNC;
             }
             unsafe { c_open(path_ptr, int_flags | O_CREAT, DFL_PERM) }
         },
+
         DoNotCreate(trunc) => {
             if trunc {
                 int_flags |= O_TRUNC;
@@ -152,6 +168,7 @@ pub fn open(
             unsafe { c_open(path_ptr, int_flags) }
         },
     };
+
     if fd < 0 {
         Err(Error::last_os_error())
     } else {
@@ -159,15 +176,15 @@ pub fn open(
     }
 }
 
-pub fn read<'a>(fd: OsFd, buf: &'a mut [u8]) -> RawInput<'a> {
+pub fn read(fd: OsFd, count: usize) -> RawInput {
     RawInput {
         fd,
-        buf,
+        buf: vec![0; count],
         count: 0,
     }
 }
 
-pub fn write<'a>(fd: OsFd, buf: &'a [u8]) -> RawOutput<'a> {
+pub fn write<'a>(fd: OsFd, buf: Vec<u8>) -> RawOutput {
     RawOutput {
         fd,
         buf,
@@ -193,11 +210,14 @@ pub fn stderr() -> Result<OsFd, Error> {
 
 pub fn set_non_blocking(fd: OsFd) -> Result<OsFd, Error> {
     let flags = unsafe { fcntl(fd, F_GETFL) };
+
     if flags < 0 {
         return Err(Error::last_os_error());
     }
+
     if unsafe { fcntl(fd, F_SETFL, flags | O_NONBLOCK) } < 0 {
         return Err(Error::last_os_error());
     }
+
     Ok(fd)
 }

@@ -11,6 +11,17 @@ pub struct FdInner {
     pub obuf_size: usize,
 }
 
+impl FdInner {
+
+    pub fn swap_use_lock(&self, val: bool) -> bool {
+        let mut ptr = self.in_use.lock().unwrap();
+        let prev = *ptr;
+        *ptr = val;
+        prev
+    }
+
+}
+
 impl Drop for FdInner {
 
     fn drop(&mut self) {
