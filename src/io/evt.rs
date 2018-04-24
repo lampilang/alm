@@ -10,7 +10,7 @@ use super::{
     Error,
     SeekFrom,
 };
-use std::sync::{MutexGuard};
+use std::sync::{Arc, MutexGuard};
 use std::ops::{DerefMut};
 use std::mem;
 
@@ -22,7 +22,7 @@ pub fn read(fd: Fd, amount: usize) -> Input {
     }
 }
 
-pub fn write(fd: Fd, data: Vec<u8>) -> Output {
+pub fn write(fd: Fd, data: Arc<[u8]>) -> Output {
     Output {
         fd,
         raw: None,
@@ -48,20 +48,20 @@ pub fn seek(fd: Fd, from: SeekFrom) -> Seek {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InputStatus {
     Pending(usize),
-    Done(Vec<u8>),
+    Done(Arc<[u8]>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutputStatus {
-    Pending(Vec<u8>),
+    Pending(Arc<[u8]>),
     Done(),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FlushStatus {
     Pending(),
-    DoneRead(Vec<u8>),
-    DoneAll(Vec<u8>),
+    DoneRead(Arc<[u8]>),
+    DoneAll(Arc<[u8]>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -86,10 +86,10 @@ impl Input {
         }
     }
 
-    pub fn try_fetch(&mut self) -> Result<&InputStatus, Error> {
+    pub fn try_fetch(&mut self) -> Result<InputStatus, Error> {
         let amount = match self.status {
             InputStatus::Pending(x) => x,
-            ref res => return Ok(res),
+            ref res => return Ok(res.clone()),
         };
 
         if let Some(raw) = self.raw.take() {
@@ -101,7 +101,7 @@ impl Input {
         let ibuf_size = self.fd.inner.ibuf_size;
 
         if self.fd.inner.swap_use_lock(true) {
-            return Ok(&self.status)
+            return Ok(self.status.clone())
         }
 
         self.status = InputStatus::Done(loop {
@@ -109,21 +109,21 @@ impl Input {
                 let mut ibuf = self.fd.inner.ibuf.lock().unwrap();
                 if ibuf.len() >= amount {
                     let tmp = ibuf.split_off(amount);
-                    break mem::replace(&mut ibuf, tmp);
+                    break Arc::from(mem::replace(&mut *ibuf, tmp));
                 }
                 raw_read(fd, amount.max(ibuf_size) - ibuf.len())
             };
             return self.try_read(raw, amount);
         });
 
-        Ok(&self.status)
+        Ok(self.status.clone())
     }
 
     fn try_read(
         &mut self,
         mut raw: RawInput,
         amount: usize,
-    ) -> Result<&InputStatus, Error> {
+    ) -> Result<InputStatus, Error> {
         let done = match raw.try_read() {
             Ok(x) => x,
             Err(e) => {
@@ -136,7 +136,7 @@ impl Input {
             self.status = InputStatus::Done({
                 let mut ibuf = self.fd.inner.ibuf.lock().unwrap();
                 let tmp = ibuf.split_off(amount);
-                mem::replace(&mut ibuf, tmp)
+                Arc::from(mem::replace(&mut *ibuf, tmp))
             });
             let prev = self.fd.inner.swap_use_lock(false);
             debug_assert!(prev, "Input use lock was badly released");
@@ -144,7 +144,7 @@ impl Input {
             self.raw = Some(raw);
         }
 
-        Ok(&self.status)
+        Ok(self.status.clone())
     }
 
 }
@@ -165,7 +165,7 @@ impl Output {
         }
     }
 
-    pub fn try_forward(&mut self) -> Result<&OutputStatus, Error> {
+    pub fn try_forward(&mut self) -> Result<OutputStatus, Error> {
         if let Some(raw) = self.raw.take() {
             return self.try_write(raw);
         }
@@ -173,7 +173,7 @@ impl Output {
         self.raw = {
             let data = match self.status {
                 OutputStatus::Pending(ref x) => x,
-                ref res => return Ok(res),
+                ref res => return Ok(res.clone()),
             };
 
             let fd = self.fd.inner.os_fd.unwrap();
@@ -181,11 +181,11 @@ impl Output {
             let obuf_size = self.fd.inner.obuf_size;
 
             if self.fd.inner.swap_use_lock(true) {
-                return Ok(&self.status)
+                return Ok(self.status.clone())
             }
 
             let mut obuf = self.fd.inner.obuf.lock().unwrap();
-            obuf.extend_from_slice(data);
+            obuf.extend_from_slice(&data);
 
             if obuf_size <= obuf.len() {
                 let buf = obuf.split_off(0);
@@ -201,13 +201,13 @@ impl Output {
 
         self.status = OutputStatus::Done();
 
-        Ok(&self.status)
+        Ok(self.status.clone())
     }
 
     fn try_write(
         &mut self,
         mut raw: RawOutput,
-    ) -> Result<&OutputStatus, Error> {
+    ) -> Result<OutputStatus, Error> {
         let done = match raw.try_write() {
             Ok(x) => x,
             Err(e) => {
@@ -224,7 +224,7 @@ impl Output {
             self.raw = Some(raw);
         }
 
-        Ok(&self.status)
+        Ok(self.status.clone())
     }
 
 }
@@ -246,17 +246,17 @@ impl Flush {
         }
     }
 
-    pub fn try_flush(&mut self) -> Result<&FlushStatus, Error> {
+    pub fn try_flush(&mut self) -> Result<FlushStatus, Error> {
 
         match self.status {
             FlushStatus::Pending() => self.status = FlushStatus::DoneRead({
                 if self.fd.inner.swap_use_lock(true) {
-                    return Ok(&self.status);
+                    return Ok(self.status.clone());
                 }
                 let mut ibuf = self.fd.inner.ibuf.lock().unwrap();
-                ibuf.split_off(0)
+                Arc::from(ibuf.split_off(0))
             }),
-            FlushStatus::DoneAll(_) => return Ok(&self.status),
+            FlushStatus::DoneAll(_) => return Ok(self.status.clone()),
             _ => (),
         }
 
@@ -282,7 +282,7 @@ impl Flush {
     fn try_write(
         &mut self,
         mut raw: RawOutput,
-    ) -> Result<&FlushStatus, Error> {
+    ) -> Result<FlushStatus, Error> {
         let done = match raw.try_write() {
             Ok(x) => x,
             Err(e) => {
@@ -303,7 +303,7 @@ impl Flush {
             self.raw = Some(raw);
         }
 
-        Ok(&self.status)
+        Ok(self.status.clone())
     }
 
 }

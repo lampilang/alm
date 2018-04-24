@@ -162,7 +162,7 @@ impl Fd {
         read(self.clone(), count)
     }
 
-    pub fn write(&self, data: Vec<u8>) -> Output {
+    pub fn write(&self, data: Arc<[u8]>) -> Output {
         write(self.clone(), data)
     }
 
