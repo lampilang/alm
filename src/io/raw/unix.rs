@@ -1,43 +1,47 @@
+use io::{
+    raw::{
+        CreateOpts::{self, *},
+        EndOpts::{self, *},
+    },
+    Error,
+    SeekFrom,
+};
 use libc::{
-    c_void,
+    __errno_location,
     c_int,
-    off_t,
-    mode_t,
-    fcntl,
-    open as c_open,
+    c_void,
     close as c_close,
+    fcntl,
+    lseek,
     mknod,
+    mode_t,
+    off_t,
+    open as c_open,
     read as c_read,
     write as c_write,
-    lseek,
-    __errno_location,
     EOVERFLOW,
-    SEEK_SET,
-    SEEK_CUR,
-    SEEK_END,
     F_GETFL,
     F_SETFL,
-    O_NONBLOCK,
     O_APPEND,
     O_CREAT,
-    O_TRUNC,
+    O_NONBLOCK,
     O_RDONLY,
-    O_WRONLY,
     O_RDWR,
+    O_TRUNC,
+    O_WRONLY,
+    SEEK_CUR,
+    SEEK_END,
+    SEEK_SET,
+    STDERR_FILENO,
     STDIN_FILENO,
     STDOUT_FILENO,
-    STDERR_FILENO,
     S_IFREG,
-    S_IRUSR,
-    S_IWUSR,
     S_IRGRP,
     S_IROTH,
+    S_IRUSR,
+    S_IWUSR,
 };
 use std::io::ErrorKind;
-use io::{Error, SeekFrom};
-use io::raw::{EndOpts, CreateOpts};
-use io::raw::CreateOpts::*;
-use io::raw::EndOpts::*;
 
 pub const DFL_PERM: mode_t = S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH;
 
@@ -51,10 +55,9 @@ pub struct RawInput {
 }
 
 impl RawInput {
+    pub fn take(self) -> Vec<u8> { self.buf }
 
-    pub fn is_done(&self) -> bool {
-        self.count >= self.buf.len()
-    }
+    pub fn buf(&self) -> &[u8] { &self.buf[..] }
 
     pub fn try_read(&mut self) -> Result<bool, Error> {
         if self.is_done() {
@@ -79,12 +82,7 @@ impl RawInput {
         Ok(self.is_done())
     }
 
-    pub fn buf(&self) -> &[u8] {
-        &self.buf[..]
-    }
-
-    pub fn take(self) -> Vec<u8> {self.buf}
-
+    pub fn is_done(&self) -> bool { self.count >= self.buf.len() }
 }
 
 #[derive(Debug)]
@@ -95,11 +93,6 @@ pub struct RawOutput {
 }
 
 impl RawOutput {
-
-    pub fn is_done(&self) -> bool {
-        self.count >= self.buf.len()
-    }
-
     pub fn try_write(&mut self) -> Result<bool, Error> {
         if self.is_done() {
             return Ok(true);
@@ -123,6 +116,7 @@ impl RawOutput {
         Ok(self.is_done())
     }
 
+    pub fn is_done(&self) -> bool { self.count >= self.buf.len() }
 }
 
 pub fn open(
@@ -140,15 +134,19 @@ pub fn open(
 
     let mut int_flags = O_NONBLOCK | match end {
         I() => O_RDONLY,
-        O(append) => if append {
-            O_WRONLY | O_APPEND
-        } else {
-            O_WRONLY
+        O(append) => {
+            if append {
+                O_WRONLY | O_APPEND
+            } else {
+                O_WRONLY
+            }
         },
-        IO(append) => if append {
-            O_RDWR | O_APPEND
-        } else {
-            O_RDWR
+        IO(append) => {
+            if append {
+                O_RDWR | O_APPEND
+            } else {
+                O_RDWR
+            }
         },
     };
 
@@ -207,15 +205,12 @@ pub fn seek(fd: OsFd, from: SeekFrom) -> Result<u64, Error> {
     }
 }
 
-
 fn seek_uint(fd: OsFd, mut offset: u64, from: c_int) -> Result<u64, Error> {
     while offset > off_t::max_value() as u64 {
         offset -= off_t::max_value() as u64;
-        let res = unsafe {
-            lseek(fd, off_t::max_value(), from)
-        };
+        let res = unsafe { lseek(fd, off_t::max_value(), from) };
         if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
-            return Err(Error::last_os_error())
+            return Err(Error::last_os_error());
         }
     }
 
@@ -232,28 +227,24 @@ fn seek_uint(fd: OsFd, mut offset: u64, from: c_int) -> Result<u64, Error> {
 fn seek_int(fd: OsFd, mut offset: i64, from: c_int) -> Result<u64, Error> {
     while offset > off_t::max_value() as i64 {
         offset -= off_t::max_value() as i64;
-        let res = unsafe {
-            lseek(fd, off_t::max_value(), from)
-        };
+        let res = unsafe { lseek(fd, off_t::max_value(), from) };
         if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
-            return Err(Error::last_os_error())
+            return Err(Error::last_os_error());
         }
     }
 
     while offset < off_t::min_value() as i64 {
         offset -= off_t::min_value() as i64;
-        let res = unsafe {
-            lseek(fd, off_t::min_value(), from)
-        };
+        let res = unsafe { lseek(fd, off_t::min_value(), from) };
         if res < 0 && unsafe { *__errno_location() } != EOVERFLOW {
-            return Err(Error::last_os_error())
+            return Err(Error::last_os_error());
         }
     }
 
     let res = unsafe { lseek(fd, offset as off_t, from) };
     if res >= 0 {
         Ok(res as u64)
-    } else if unsafe {*__errno_location()} == EOVERFLOW {
+    } else if unsafe { *__errno_location() } == EOVERFLOW {
         Ok(u64::max_value())
     } else {
         Err(Error::last_os_error())
@@ -261,20 +252,16 @@ fn seek_int(fd: OsFd, mut offset: i64, from: c_int) -> Result<u64, Error> {
 }
 
 pub fn close(fd: OsFd) {
-    unsafe { c_close(fd); }
+    unsafe {
+        c_close(fd);
+    }
 }
 
-pub fn stdin() -> Result<OsFd, Error> {
-    set_non_blocking(STDIN_FILENO)
-}
+pub fn stdin() -> Result<OsFd, Error> { set_non_blocking(STDIN_FILENO) }
 
-pub fn stdout() -> Result<OsFd, Error> {
-    set_non_blocking(STDOUT_FILENO)
-}
+pub fn stdout() -> Result<OsFd, Error> { set_non_blocking(STDOUT_FILENO) }
 
-pub fn stderr() -> Result<OsFd, Error> {
-    set_non_blocking(STDERR_FILENO)
-}
+pub fn stderr() -> Result<OsFd, Error> { set_non_blocking(STDERR_FILENO) }
 
 pub fn set_non_blocking(fd: OsFd) -> Result<OsFd, Error> {
     let flags = unsafe { fcntl(fd, F_GETFL) };

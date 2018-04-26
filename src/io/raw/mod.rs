@@ -1,27 +1,20 @@
 #[cfg(unix)]
-#[path="unix.rs"]
+#[path = "unix.rs"]
 mod os;
-
-#[cfg(target_os = "windows")]
-#[path="windows.rs"]
-mod os;
-
-use super::{Error, SeekFrom};
 
 pub use self::os::{
+    close,
+    open,
+    read,
+    seek,
+    stderr,
+    stdin,
+    stdout,
+    write,
     OsFd,
     RawInput,
     RawOutput,
-    read,
-    write,
-    seek,
-    open,
-    close,
-    stdin,
-    stdout,
-    stderr,
 };
-
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EndOpts {

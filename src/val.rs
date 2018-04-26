@@ -1,3 +1,4 @@
+use edi::Edi;
 use std::sync::Arc;
 
 pub trait MultiTyped {
@@ -16,7 +17,8 @@ pub enum Type {
     Array = 7,
     Tuple = 8,
     Function = 9,
-    Extension = 10,
+    Edi = 10,
+    Extension = 11,
 }
 
 #[derive(Clone, Debug)]
@@ -31,11 +33,11 @@ pub enum Value {
     Array(Array),
     Tuple(Tuple),
     Function(Function),
+    Edi(Edi),
     Extension(*mut ()),
 }
 
 impl MultiTyped for Value {
-
     fn type_code(&self) -> Type {
         match *self {
             Value::Nil() => Type::Nil,
@@ -48,10 +50,10 @@ impl MultiTyped for Value {
             Value::Array(_) => Type::Array,
             Value::Tuple(_) => Type::Tuple,
             Value::Function(_) => Type::Function,
+            Value::Edi(_) => Type::Edi,
             Value::Extension(_) => Type::Extension,
         }
     }
-
 }
 
 #[derive(Clone, Debug)]
@@ -66,11 +68,11 @@ pub enum ArrayType {
     Array(Arc<[Array]>),
     Tuple(Arc<[Tuple]>),
     Function(Arc<[Function]>),
+    Edi(Arc<[Edi]>),
     Extension(Arc<[*mut ()]>),
 }
 
 impl MultiTyped for ArrayType {
-
     fn type_code(&self) -> Type {
         match *self {
             ArrayType::Nil(_) => Type::Nil,
@@ -83,49 +85,37 @@ impl MultiTyped for ArrayType {
             ArrayType::Array(_) => Type::Array,
             ArrayType::Tuple(_) => Type::Tuple,
             ArrayType::Function(_) => Type::Function,
+            ArrayType::Edi(_) => Type::Edi,
             ArrayType::Extension(_) => Type::Extension,
         }
     }
-
 }
 
 #[derive(Clone, Debug)]
 pub struct Array {
-    inner: Arc<ArrayType>
+    inner: Arc<ArrayType>,
 }
 
 impl Array {
+    pub fn type_enum(&self) -> &Arc<ArrayType> { &self.inner }
 
-    pub fn new(typ: Arc<ArrayType>) -> Self {
-        Self {inner: typ}
-    }
-
-    pub fn type_enum(&self) -> &Arc<ArrayType> {
-        &self.inner
-    }
-
+    pub fn new(typ: Arc<ArrayType>) -> Self { Self { inner: typ } }
 }
 
 #[derive(Clone, Debug)]
 pub struct Tuple {
-    inner: Arc<[Value]>
+    inner: Arc<[Value]>,
 }
 
 impl Tuple {
+    pub fn elements(&self) -> &Arc<[Value]> { &self.inner }
 
-    pub fn new(elems: Arc<[Value]>) -> Self {
-        Self {inner: elems}
-    }
-
-    pub fn elements(&self) -> &Arc<[Value]> {
-        &self.inner
-    }
-
+    pub fn new(elems: Arc<[Value]>) -> Self { Self { inner: elems } }
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    inner: Arc<FunctionInner>
+    inner: Arc<FunctionInner>,
 }
 
 #[derive(Clone, Debug)]
@@ -135,27 +125,16 @@ struct FunctionInner {
     name: Arc<[u8]>,
 }
 
-
 impl Function {
+    pub fn name(&self) -> &Arc<[u8]> { &self.inner.name }
+
+    pub fn bc(&self) -> &Arc<[u8]> { &self.inner.bc }
+
+    pub fn env(&self) -> &Value { &self.inner.env }
 
     pub fn new(env: Value, bc: Arc<[u8]>, name: Arc<[u8]>) -> Self {
-        Self {inner: Arc::new(FunctionInner {
-            env,
-            bc,
-            name
-        })}
+        Self {
+            inner: Arc::new(FunctionInner { env, bc, name }),
+        }
     }
-
-    pub fn env(&self) -> &Value {
-        &self.inner.env
-    }
-
-    pub fn bc(&self) -> &Arc<[u8]> {
-        &self.inner.bc
-    }
-
-    pub fn name(&self) -> &Arc<[u8]> {
-        &self.inner.name
-    }
-
 }
